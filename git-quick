@@ -1,0 +1,165 @@
+#!/bin/sh
+
+main() {
+    [ ! "$1" ] && help
+    case "$1" in
+        "-h")
+            help
+            ;;
+        "--help")
+            help
+            ;;
+        "create")
+            create "$2"
+            ;;
+        "cherry-pick")
+            cherrypick "$2" "$3"
+            ;;
+        "add")
+            add "${@:2}"
+            ;;
+        "del")
+            del "${@:2}"
+            ;;
+        "status")
+            status
+            ;;
+        "done")
+            cleanup
+            ;;
+        *)
+            help
+            ;;
+    esac
+}
+
+help() {
+    echo "usage: git quick create <branch>"
+    echo "       git quick cherry-pick <commit-ish> <branch>"
+    echo "       git quick add <file> <...>"
+    echo "       git quick del <file> <...>"
+    echo "       git quick status"
+    echo "       git quick done"
+    exit 1
+}
+
+create() {
+    BRANCH="$1"
+
+    internal_create "$BRANCH" "quick" false
+
+    echo ""
+    echo "Done. Remember to change directory: cd $WORKTREE_DIR"
+    echo "Then you can add files to edit using git quick add <file>"
+    echo "Use git quick status instead of git status. If you create a new file, use git quick add <file> to make it appear in the status"
+    echo "Before pushing, you might want to rename the branch using: git branch -m <new_name>"
+    echo "When you are done, you can run cleanup using: git quick done"
+}
+
+cherrypick() {
+    COMMITS="$1"
+    BRANCH="$2"
+
+    internal_create "$BRANCH" "cherry-pick" true
+    cd "$WORKTREE_DIR"
+    WORKTREE_SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
+    git diff-tree --no-commit-id --name-only -r "$COMMITS" > "$WORKTREE_SPARSE_FILE"
+    echo "Checking out files..."
+    git read-tree -mu HEAD
+    echo "Cherry-picking... (this might take longer than usual)"
+    git cherry-pick "$COMMITS"
+    # Magically fixes the index so it matches the sparse-checkout again
+    git ls-files --deleted | git update-index --skip-worktree --stdin
+
+    echo ""
+    echo "Done. Remember to change directory: cd $WORKTREE_DIR"
+    echo "Then you can edit the cherry-pick and resolve conflicts"
+    echo "Before pushing, you might want to rename the branch using: git branch -m <new_name>"
+    echo "When you are done, you can run cleanup using: git quick done"
+}
+
+add() {
+    FILES=( "$@" )
+
+    SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
+    for file in "${FILES[@]}"; do
+        grep -Fx -m 1 "$file" "$SPARSE_FILE" > /dev/null && echo "ignored: $file, was already added" && continue
+        echo "$file" >> "$SPARSE_FILE"
+    done
+    git read-tree -mu HEAD
+}
+
+del() {
+    FILES=( "$@" )
+
+    SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
+    for file in "${FILES[@]}"; do
+        grep -Fx -m 1 "$file" "$SPARSE_FILE" > /dev/null || (echo "Could not find an entry matching $file"; continue)
+        grep -vFx "$file" "$SPARSE_FILE" > "${SPARSE_FILE}-tmp"
+        mv "${SPARSE_FILE}-tmp" "$SPARSE_FILE"
+        rmdir --ignore-fail-on-non-empty -p "${file%/*}"
+        rm -rf "$file"
+    done
+    [ -s "$SPARSE_FILE" ] && git read-tree -mu HEAD
+}
+
+status() {
+    git status -- "$(cat $(git rev-parse --git-dir)/info/sparse-checkout)"
+}
+
+cleanup() {
+    [ -d "$(git rev-parse --show-toplevel)/.git" ] && fatal "This is your main repository directory, you should not delete it. Run cleanup while inside a quick copy of your repository (worktree). You can get a list using: git worktree list"
+    REPO_DIR="$(git rev-parse --git-dir)"
+    REPO_DIR="${REPO_DIR%.git*}"
+    [ ! "$REPO_DIR" ] && exit 1
+    CUR_DIR="$(pwd)"
+    [ ! "CUR_DIR" ] && exit 1
+    CUR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    [ ! "$CUR_BRANCH" ] && exit 1
+    echo "This will delete the directory '$CUR_DIR' and the local branch '$CUR_BRANCH'."
+    echo -n "Continue? [y/N] "
+    read ANSWER
+    if [ "$ANSWER" == "y" ] || [ "$ANSWER" == "Y" ]; then
+        cd ..
+        rm -rf "$CUR_DIR"
+        echo "Deleted directory $CUR_DIR"
+        cd "$REPO_DIR"
+        git worktree prune
+        git branch -D "$CUR_BRANCH"
+        echo ""
+        echo "Done. Remember to change directory: cd $REPO_DIR"
+    else
+        echo "Aborted"
+    fi
+}
+
+internal_create() {
+    BRANCH="$1"
+    QUICK_NAME="$2"
+    FORCE_NEW_BRANCH_NAME="$3"
+
+    REPO_DIR="$(git rev-parse --show-toplevel)"
+    REPO_DIR="${REPO_DIR##*/}"
+    [ ! "$REPO_DIR" ] && exit 1
+    i=1
+    while [ -d "../${REPO_DIR}-${QUICK_NAME}-$i" ]; do
+        i=$((i+1))
+    done
+    WORKTREE_DIR="../${REPO_DIR}-${QUICK_NAME}-$i"
+    if [ "$FORCE_NEW_BRANCH_NAME" == "true" ] || git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+        i=1
+        while git show-ref --verify --quiet "refs/heads/$BRANCH-${QUICK_NAME}-$i"; do
+            i=$((i+1))
+        done
+        LOCAL_BRANCH="$BRANCH-${QUICK_NAME}-$i"
+    else
+        LOCAL_BRANCH="$BRANCH"
+    fi
+    git worktree add --no-checkout -b "$LOCAL_BRANCH" "$WORKTREE_DIR" "origin/$BRANCH" || exit 1
+    cd "$WORKTREE_DIR"
+    git config core.sparsecheckout true
+    WORKTREE_INFO_DIR="$(git rev-parse --git-dir)/info"
+    mkdir -p "$WORKTREE_INFO_DIR"
+}
+
+main "$@"
