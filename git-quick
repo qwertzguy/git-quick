@@ -60,10 +60,11 @@ cherrypick() {
     COMMITS="$1"
     BRANCH="$2"
 
+    ! git cat-file -e "$COMMITS" && echo "error: $COMMITS not found in local repository. Did you fetch?" && exit 1
     internal_create "$BRANCH" "cherry-pick" true
     cd "$WORKTREE_DIR"
     WORKTREE_SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
-    git diff-tree --no-commit-id --name-only -r "$COMMITS" > "$WORKTREE_SPARSE_FILE"
+    git diff-tree --no-commit-id --name-only -r "$COMMITS" | sed 's:^:/:' > "$WORKTREE_SPARSE_FILE"
     echo "Checking out files..."
     git read-tree -mu HEAD
     echo "Cherry-picking... (this might take longer than usual)"
@@ -83,10 +84,12 @@ add() {
 
     SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
     for file in "${FILES[@]}"; do
-        grep -Fx -m 1 "$file" "$SPARSE_FILE" > /dev/null && echo "ignored: $file, was already added" && continue
-        echo "$file" >> "$SPARSE_FILE"
+        ! git rev-parse --verify --quiet "HEAD:$file" > /dev/null && echo "error: $file not found in repository" && continue
+        grep -Fx -m 1 "/$file" "$SPARSE_FILE" > /dev/null && echo "ignored: $file was already added" && continue
+        git update-index --no-skip-worktree -- "$file"
+        echo "/$file" >> "$SPARSE_FILE"
+        [ ! -f "$file" ] && git checkout -- "$file"
     done
-    git read-tree -mu HEAD
 }
 
 del() {
@@ -94,17 +97,17 @@ del() {
 
     SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
     for file in "${FILES[@]}"; do
-        grep -Fx -m 1 "$file" "$SPARSE_FILE" > /dev/null || (echo "Could not find an entry matching $file"; continue)
-        grep -vFx "$file" "$SPARSE_FILE" > "${SPARSE_FILE}-tmp"
+        ! grep -Fx -m 1 "/$file" "$SPARSE_FILE" > /dev/null && echo "error: $file was never added" && continue
+        grep -vFx "/$file" "$SPARSE_FILE" > "${SPARSE_FILE}-tmp"
         mv "${SPARSE_FILE}-tmp" "$SPARSE_FILE"
-        rmdir --ignore-fail-on-non-empty -p "${file%/*}"
         rm -rf "$file"
+        [ -d "${file%/*}" ] && rmdir --ignore-fail-on-non-empty -p "${file%/*}"
+        git-update-index --skip-worktree -- "$file"
     done
-    [ -s "$SPARSE_FILE" ] && git read-tree -mu HEAD
 }
 
 status() {
-    git status -- "$(cat $(git rev-parse --git-dir)/info/sparse-checkout)"
+    cat $(git rev-parse --git-dir)/info/sparse-checkout | sed 's:^/::' | xargs -d '\n' git status --
 }
 
 cleanup() {
@@ -160,6 +163,7 @@ internal_create() {
     git config core.sparsecheckout true
     WORKTREE_INFO_DIR="$(git rev-parse --git-dir)/info"
     mkdir -p "$WORKTREE_INFO_DIR"
+    touch "$WORKTREE_INFO_DIR/sparse-checkout"
 }
 
 main "$@"
