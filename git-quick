@@ -60,7 +60,7 @@ cherrypick() {
     COMMITS="$1"
     BRANCH="$2"
 
-    ! git cat-file -e "$COMMITS" && echo "error: $COMMITS not found in local repository. Did you fetch?" && exit 1
+    ! git rev-list --quiet "$COMMITS" && echo "error: $COMMITS not found in local repository. Did you fetch?" && exit 1
     internal_create "$BRANCH" "cherry-pick" true
     cd "$WORKTREE_DIR"
     WORKTREE_SPARSE_FILE="$(git rev-parse --git-dir)/info/sparse-checkout"
