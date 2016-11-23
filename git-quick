@@ -164,6 +164,8 @@ internal_create() {
     WORKTREE_INFO_DIR="$(git rev-parse --git-dir)/info"
     mkdir -p "$WORKTREE_INFO_DIR"
     touch "$WORKTREE_INFO_DIR/sparse-checkout"
+    git read-tree HEAD
+    git ls-files --deleted | git update-index --skip-worktree --stdin
 }
 
 main "$@"
