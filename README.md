@@ -5,7 +5,7 @@ _git-quick_ — edit a subset of files from a git repository on any branch witho
 It uses a mix of `git worktree` and sparse-checkout to allow edits of a subset of files in another branch without the need to `git stash` your work-in-progress. For example, you can cherry-pick a change from a branch to another without checking out the other branch and without affecting your working copy.  
 The main goal is to help dealing with very large git repositories, in which case commands like `git checkout` and `git stash` take a significant amount of time to execute.
 
-_Note: you need git 2.5.1 or later to use this tool_
+_Note: you need git 2.9.0 or later to use this tool_
 
 ## Usage
 
