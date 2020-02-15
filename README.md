@@ -20,7 +20,7 @@ _Note: you need git 2.9.0 or later to use this tool_
 `cherry-pick`: creates a new worktree and checks out the files modified in the specified commit and starts a cherry-pick.  
 `add`: adds a file to be checked-out.  
 `del`: removes a file from the checkout.  
-`status`: provides a faster `git status` by showing only changes to files add to the checkout.  
+`status`: provides a faster `git status` by showing only changes to files added to the checkout.  
 `done`: deletes a worktree directory and it's associated branch and metadata.  
 
 ## Install/Update
